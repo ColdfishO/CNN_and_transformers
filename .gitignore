@@ -1,0 +1,54 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+*.env
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# === Data ===
+data/
+datasets/
+*.csv
+*.tsv
+*.zip
+*.gz
+
+# === PyTorch / Models ===
+*.pt
+*.pth
+checkpoints/
+runs/
+logs/
+outputs/
+
+# === CUDA / Compiled ===
+*.nv
+*.cupti*
+
+# === IDE / Editors ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === OS files ===
+.DS_Store
+Thumbs.db
+
+# === Cache ===
+.cache/
+logs/
+temp/
+tmp/
