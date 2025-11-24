@@ -19,6 +19,9 @@ venv/
 
 # === Data ===
 data/
+*.zip
+*.tar.gz
+
 datasets/
 *.csv
 *.tsv
@@ -52,3 +55,6 @@ Thumbs.db
 logs/
 temp/
 tmp/
+
+cifar-10-batches-py/
+cifar-100-python/
