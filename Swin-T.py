@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as T
-from timm import create_model
+from timm.models.swin_transformer import SwinTransformer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 from tqdm import tqdm
 import time
@@ -23,7 +23,7 @@ testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 device = torch.device('cuda')
-model = create_model("convnextv2_tiny", pretrained=False, num_classes=10).to(device)
+model = SwinTransformer(img_size=32, patch_size=2, window_size=2, in_chans=3, num_classes=10, embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24]).to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.05)
@@ -31,7 +31,7 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.05)
 total_params = sum(p.numel() for p in model.parameters())
 print("Total parameters:", total_params)
 
-ckpt_dir = "checkpoints/convnext_checkpoints"
+ckpt_dir = "checkpoints/swint_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
 num_epochs = 1
