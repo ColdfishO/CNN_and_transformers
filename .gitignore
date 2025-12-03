@@ -29,9 +29,9 @@ datasets/
 *.gz
 
 # === PyTorch / Models ===
+checkpoints/
 *.pt
 *.pth
-checkpoints/
 runs/
 logs/
 outputs/
@@ -58,3 +58,4 @@ tmp/
 
 cifar-10-batches-py/
 cifar-100-python/
+data_visualisation/

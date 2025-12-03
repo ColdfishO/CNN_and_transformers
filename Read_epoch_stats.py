@@ -5,7 +5,7 @@ import os
 # Path to the checkpoint
 # -----------------------------
 ckpt_dir = "checkpoints/convnext_checkpoints"
-epoch_number = 1  # change to the epoch you want to load
+epoch_number = 100  # change to the epoch you want to load
 ckpt_path = os.path.join(ckpt_dir, f"checkpoint_epoch{epoch_number}.pth")
 
 # -----------------------------
@@ -23,6 +23,7 @@ print(f"F1 Score: {checkpoint['val_f1']:.4f}")
 print(f"Precision: {checkpoint['val_precision']:.4f}")
 print(f"Recall: {checkpoint['val_recall']:.4f}")
 print(f"Confusion Matrix:\n{checkpoint['val_conf_matrix']}")
-print(f"Epoch Time (s): {checkpoint['epoch_time']:.2f}")
+print(f"Epoch Train Time (s): {checkpoint['epoch_train_time']:.2f}")
+print(f"Epoch Average Batch Inference Time (s): {checkpoint['epoch_avg_batch_inference_time']:.6f}")
 print(f"RAM Usage (GB): {checkpoint['ram_usage']:.2f}")
 print(f"GPU Usage (GB): {checkpoint['gpu_usage']:.2f}")

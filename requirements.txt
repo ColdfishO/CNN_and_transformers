@@ -6,3 +6,6 @@ numpy
 matplotlib
 tqdm
 psutil
+pandas
+openpyxl
+seaborn
