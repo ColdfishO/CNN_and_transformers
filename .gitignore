@@ -59,4 +59,4 @@ tmp/
 cifar-10-batches-py/
 cifar-100-python/
 data_visualisation/
-/checkpoints.7z
+checkpoints.7z
