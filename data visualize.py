@@ -7,12 +7,23 @@ import seaborn as sns
 # -----------------------------
 # Settings
 # -----------------------------
-ckpt_dir = "checkpoints/swint_checkpoints"
-num_epochs = 100
-output_dir = "./data_visualisation/modelswint"
+ckpt_dirs = {
+    "convnext": "checkpoints/convnext_checkpoints",
+    "swint": "checkpoints/swint_checkpoints",
+}
+
+num_epochs = 200
+output_dir = "./data_visualisation/models_compare"
 os.makedirs(output_dir, exist_ok=True)
 
-# List of metrics to extract
+model_colors = {
+    "convnext": "blue",
+    "swint": "red",
+}
+
+# -----------------------------
+# Metrics
+# -----------------------------
 metric_keys = [
     "epoch",
     "train_loss",
@@ -23,11 +34,9 @@ metric_keys = [
     "epoch_train_time",
     "epoch_avg_batch_inference_time",
     "ram_usage",
-    "gpu_usage",
     "val_conf_matrix"
 ]
 
-# Optional: human-readable labels for chart y-axis
 metric_labels = {
     "train_loss": "Train Loss",
     "val_acc": "Accuracy",
@@ -37,87 +46,118 @@ metric_labels = {
     "epoch_train_time": "Epoch Training Time (s)",
     "epoch_avg_batch_inference_time": "Avg Batch Inference Time (s)",
     "ram_usage": "RAM Usage (GB)",
-    "gpu_usage": "GPU Usage (GB)"
 }
 
 # -----------------------------
 # Load checkpoints
 # -----------------------------
-data = []
+def load_checkpoints(ckpt_dir):
+    data = []
 
-for epoch in range(1, num_epochs + 1):
-    ckpt_path = os.path.join(ckpt_dir, f"checkpoint_epoch{epoch}.pth")
-    if not os.path.exists(ckpt_path):
-        print(f"Warning: checkpoint {ckpt_path} not found.")
-        continue
+    for epoch in range(1, num_epochs + 1):
+        ckpt_path = os.path.join(ckpt_dir, f"checkpoint_epoch{epoch}.pth")
+        if not os.path.exists(ckpt_path):
+            continue
 
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
-    row = [checkpoint.get(key, None) for key in metric_keys]
-    data.append(row)
+        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        row = [checkpoint.get(key, None) for key in metric_keys]
+        data.append(row)
 
-# -----------------------------
-# Create DataFrame
-# -----------------------------
-df = pd.DataFrame(data, columns=metric_keys)
-df['epoch'] = df['epoch'] + 1
-print(df.head())
+    df = pd.DataFrame(data, columns=metric_keys)
+    df["epoch"] = df["epoch"] + 1
+    return df
 
 # -----------------------------
-# Save DataFrame as Excel
+# Create DataFrames + Excel
 # -----------------------------
-excel_path = os.path.join(output_dir, "metrics_table.xlsx")
-df.to_excel(excel_path, index=False)
-print(f"Metrics table saved to {excel_path}")
+dfs = {}
+
+for model, ckpt_dir in ckpt_dirs.items():
+    df = load_checkpoints(ckpt_dir)
+    dfs[model] = df
+
+    excel_path = os.path.join(output_dir, f"{model}_metrics.xlsx")
+    df.to_excel(excel_path, index=False)
+    print(f"Excel saved for {model}: {excel_path}")
 
 # -----------------------------
-# Plotting function
+# Plot comparison charts (FIXED X-AXIS)
 # -----------------------------
-def plot_metric(df, metric_key, y_label=None, title=None, tick_every=5):
+def plot_metric_compare(dfs, metric_key, y_label=None, title=None):
     plt.figure(figsize=(12, 6))
-    plt.plot(df['epoch'], df[metric_key], marker='o', linestyle='-', color='red')
+
+    for model, df in dfs.items():
+        plt.plot(
+            df["epoch"],
+            df[metric_key],
+            marker="o",
+            linestyle="-",
+            color=model_colors[model],
+            label=model.upper()
+        )
+
     plt.xlabel("Epoch")
     plt.ylabel(y_label or metric_key.replace("_", " ").title())
-    plt.xticks(df['epoch'][::tick_every])
+
+    # ✅ FIX: clean x-axis every 10 epochs
+    plt.xticks(range(0, num_epochs + 1, 10))
+
     plt.grid(True)
-    plt.title(title or f"{y_label or metric_key.replace('_',' ').title()} vs Epoch")
+    plt.legend()
+    plt.title(title or f"{y_label} vs Epoch")
     plt.tight_layout()
-    save_path = os.path.join(output_dir, f"{metric_key}_chart.png")
+
+    save_path = os.path.join(output_dir, f"{metric_key}_compare.png")
     plt.savefig(save_path)
     plt.close()
-    print(f"Chart saved to {save_path}")
+
+    print(f"Chart saved: {save_path}")
 
 # -----------------------------
-# Generate chart for each metric
+# Generate charts
 # -----------------------------
 for key in metric_keys:
     if key in ["epoch", "val_conf_matrix"]:
-        continue  # skip epoch itself and confusion matrices
+        continue
+
     y_label = metric_labels.get(key, key)
-    plot_metric(df, metric_key=key, y_label=y_label, title=f"{y_label} over Epochs", tick_every=5)
+    plot_metric_compare(
+        dfs,
+        metric_key=key,
+        y_label=y_label,
+        title=f"{y_label} over Epochs (ConvNeXt vs SwinT)"
+    )
 
 # -----------------------------
-# Confusion matrix heatmaps every 10 epochs
+# Confusion matrices (EVERY 20 EPOCHS)
 # -----------------------------
 cm_dir = os.path.join(output_dir, "confusion_matrices")
 os.makedirs(cm_dir, exist_ok=True)
 
-# Select every 10th epoch
-subset_epochs = df['epoch'][(df['epoch'] == 1) | (df['epoch'] % 10 == 0)]
+for model, df in dfs.items():
+    model_cm_dir = os.path.join(cm_dir, model)
+    os.makedirs(model_cm_dir, exist_ok=True)
 
-for epoch in subset_epochs:
-    row = df[df['epoch'] == epoch].iloc[0]
-    cm = row.get('val_conf_matrix', None)
-    if cm is None:
-        continue
+    subset_epochs = df["epoch"][(df["epoch"] == 1) | (df["epoch"] % 20 == 0)]
 
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
-    plt.title(f"Confusion Matrix - Epoch {epoch}")
-    plt.xlabel("Predicted Label")
-    plt.ylabel("True Label")
-    plt.tight_layout()
+    for epoch in subset_epochs:
+        row = df[df["epoch"] == epoch].iloc[0]
+        cm = row.get("val_conf_matrix", None)
 
-    save_path = os.path.join(cm_dir, f"confusion_matrix_epoch_{epoch}.png")
-    plt.savefig(save_path)
-    plt.close()
-    print(f"Confusion matrix heatmap saved for epoch {epoch}")
+        if cm is None:
+            continue
+
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False)
+        plt.title(f"{model.upper()} Confusion Matrix - Epoch {epoch}")
+        plt.xlabel("Predicted Label")
+        plt.ylabel("True Label")
+        plt.tight_layout()
+
+        save_path = os.path.join(
+            model_cm_dir, f"confusion_matrix_epoch_{epoch}.png"
+        )
+        plt.savefig(save_path)
+        plt.close()
+
+        print(f"Confusion matrix saved: {save_path}")

@@ -7,8 +7,6 @@ from timm import create_model
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 from tqdm import tqdm
 import time
-import numpy as np
-import matplotlib.pyplot as plt
 import psutil
 import os
 
@@ -26,7 +24,7 @@ device = torch.device('cuda')
 model = create_model("convnextv2_tiny", pretrained=False, num_classes=10).to(device)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.05)
+optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-4)
 
 total_params = sum(p.numel() for p in model.parameters())
 print("Total parameters:", total_params)
@@ -34,9 +32,8 @@ print("Total parameters:", total_params)
 ckpt_dir = "checkpoints/convnext_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
-num_epochs = 100
+num_epochs = 2
 print(f"Initial RAM memory: {psutil.virtual_memory().used / (1024**3):.2f} GB")
-print(f"Initial GPU memory: {torch.cuda.memory_allocated() / (1024**3):.2f} GB")
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -50,7 +47,6 @@ for epoch in range(num_epochs):
         optimizer.step()
         running_loss += loss.item()
     ram_epoch = psutil.virtual_memory().used / (1024 ** 3)
-    gpu_mem_epoch = torch.cuda.memory_allocated() / (1024 ** 3)
     epoch_train_time = time.time() - start_time
     train_loss = round(running_loss / len(trainloader), 4)
     print(f"Epoch {epoch + 1} finished. Loss: {train_loss}, Time: {epoch_train_time:.1f}s")
@@ -79,7 +75,7 @@ for epoch in range(num_epochs):
     cm = confusion_matrix(all_labels, all_preds)
     print(f"Test Accuracy: {acc:.4f}, F1: {f1:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
     print("Confusion Matrix:\n", cm)
-    print(f"Used RAM: {ram_epoch:.2f} GB, GPU: {gpu_mem_epoch:.2f} GB")
+    print(f"Used RAM: {ram_epoch:.2f} GB")
     print(f"Inference time: {avg_time_per_batch:.6f} sec")
     ckpt_path = os.path.join(ckpt_dir, f"checkpoint_epoch{epoch+1}.pth")
     torch.save({
@@ -94,6 +90,5 @@ for epoch in range(num_epochs):
         'val_conf_matrix': cm,
         'epoch_train_time': epoch_train_time,
         'epoch_avg_batch_inference_time': avg_time_per_batch,
-        'ram_usage': ram_epoch,
-        'gpu_usage': gpu_mem_epoch
+        'ram_usage': ram_epoch
     }, ckpt_path)

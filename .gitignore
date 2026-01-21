@@ -1,62 +1,23 @@
-# === Python ===
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.so
-*.dll
-
-# Virtual environments
-.env/
-.venv/
-env/
-venv/
-*.env
-
-# Jupyter / IPython
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# === Data ===
+# Datasets
 data/
-*.zip
-*.tar.gz
 
-datasets/
-*.csv
-*.tsv
-*.zip
-*.gz
-
-# === PyTorch / Models ===
+# Checkpoints
 checkpoints/
-*.pt
 *.pth
-runs/
-logs/
-outputs/
+*.pt
+*.ckpt
+*.7z
 
-# === CUDA / Compiled ===
-*.nv
-*.cupti*
+# Visualization outputs
+data_visualisation/
 
-# === IDE / Editors ===
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE files
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# === OS files ===
-.DS_Store
-Thumbs.db
-
-# === Cache ===
-.cache/
-logs/
-temp/
-tmp/
-
-cifar-10-batches-py/
-cifar-100-python/
-data_visualisation/
+archive.7z
 checkpoints.7z
