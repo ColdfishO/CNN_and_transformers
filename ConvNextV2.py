@@ -32,7 +32,7 @@ print("Total parameters:", total_params)
 ckpt_dir = "checkpoints/convnext_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
-num_epochs = 2
+num_epochs = 200
 print(f"Initial RAM memory: {psutil.virtual_memory().used / (1024**3):.2f} GB")
 for epoch in range(num_epochs):
     model.train()

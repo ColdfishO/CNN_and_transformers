@@ -14,6 +14,8 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 transform = T.Compose([
+    T.RandomCrop(32, padding=4),
+    T.RandomHorizontalFlip(),
     T.ToTensor(),
     T.Normalize(
         (0.5071, 0.4865, 0.4409),
