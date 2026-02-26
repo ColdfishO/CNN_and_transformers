@@ -10,14 +10,27 @@ import time
 import psutil
 import os
 
-transform = T.Compose([
+train_transform = T.Compose([
+    T.RandomCrop(32, padding=4),
+    T.RandomHorizontalFlip(),
     T.ToTensor(),
-    T.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
+    T.Normalize(
+        (0.5071, 0.4865, 0.4409),
+        (0.2673, 0.2564, 0.2761)
+    )
 ])
 
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+test_transform = T.Compose([
+    T.ToTensor(),
+    T.Normalize(
+        (0.5071, 0.4865, 0.4409),
+        (0.2673, 0.2564, 0.2761)
+    )
+])
+
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True, num_workers=2)
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=test_transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 device = torch.device('cuda')
