@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-import torchvision.models as models
 import torchvision.transforms as T
 from timm.models.vision_transformer import VisionTransformer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
@@ -35,29 +34,15 @@ testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 device = torch.device('cuda')
-
-# Teacher model (pretrained ResNet)
-teacher = models.resnet18(pretrained=True).eval().to(device)
-for p in teacher.parameters():
-    p.requires_grad = False  # teacher frozen
-
 model = VisionTransformer(img_size=32, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4.0, num_classes=10).to(device)
 
 criterion = nn.CrossEntropyLoss()
-
-# KL-divergence for distillation
-kl_loss = nn.KLDivLoss(reduction='batchmean')
-
-# Alpha = weight of distillation loss
-alpha = 0.5
-temperature = 3.0
-
 optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-4)
 
 total_params = sum(p.numel() for p in model.parameters())
 print("Total parameters:", total_params)
 
-ckpt_dir = "checkpoints/deitSmall_checkpoints"
+ckpt_dir = "checkpoints/vitSmall_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
 num_epochs = 1
@@ -69,19 +54,8 @@ for epoch in range(num_epochs):
     for inputs, labels in tqdm(trainloader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        # Forward pass through student (ViT / DeiT)
-        logits = model(inputs)
-        # Forward pass through teacher (frozen)
-        with torch.no_grad():
-            teacher_logits = teacher(inputs)
-        loss_ce = criterion(logits, labels)
-        # Distillation loss (KL divergence)
-        loss_kd = kl_loss(
-            nn.functional.log_softmax(logits / temperature, dim=1),
-            nn.functional.softmax(teacher_logits / temperature, dim=1)
-        )
-        # Combine losses
-        loss = (1 - alpha) * loss_ce + alpha * loss_kd
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
