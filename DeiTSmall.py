@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-import torchvision.models as models
 import torchvision.transforms as T
 from timm.models.vision_transformer import VisionTransformer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
@@ -37,11 +36,53 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, 
 device = torch.device('cuda')
 
 # Teacher model (pretrained ResNet)
-teacher = models.resnet18(pretrained=True).eval().to(device)
+teacher = torchvision.models.resnet34(weights=None)  # Replace with pretrained weights if available
+teacher.fc = nn.Linear(512, 10)  # Adjust for CIFAR-10 classes
+teacher_ckpt = torch.load("checkpoints/resnet_checkpoints/checkpoint_epoch199.pth")
+teacher.load_state_dict(teacher_ckpt['model_state_dict'])
+teacher.eval()
 for p in teacher.parameters():
-    p.requires_grad = False  # teacher frozen
+    p.requires_grad = False
+teacher = teacher.to(device)
 
-model = VisionTransformer(img_size=32, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4.0, num_classes=10).to(device)
+class DeiTSmallCIFAR(VisionTransformer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Add learnable distillation token
+        self.dist_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+        nn.init.trunc_normal_(self.dist_token, std=.02)
+        # Extra classifier head for distillation token
+        self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
+
+        # Fix positional embedding for dist token
+        num_tokens = self.patch_embed.num_patches + 2  # CLS + Distillation + patches
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_tokens, self.embed_dim))
+        nn.init.trunc_normal_(self.pos_embed, std=.02)
+
+    def forward(self, x):
+        B = x.shape[0]
+        # Original patch embedding
+        x = self.patch_embed(x)
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        dist_tokens = self.dist_token.expand(B, -1, -1)  # distillation token
+        x = torch.cat((cls_tokens, dist_tokens, x), dim=1)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
+
+        for blk in self.blocks:
+            x = blk(x)
+        x = self.norm(x)
+
+        cls_token_final = x[:, 0]  # original CLS
+        dist_token_final = x[:, 1]  # distillation token
+
+        x_cls = self.head(cls_token_final)
+        x_dist = self.head_dist(dist_token_final)
+
+        return x_cls, x_dist  # return both for combined loss
+
+
+model = DeiTSmallCIFAR(img_size=32, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4.0, num_classes=10).to(device)
 
 criterion = nn.CrossEntropyLoss()
 
@@ -69,15 +110,13 @@ for epoch in range(num_epochs):
     for inputs, labels in tqdm(trainloader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        # Forward pass through student (ViT / DeiT)
-        logits = model(inputs)
-        # Forward pass through teacher (frozen)
+        logits_cls, logits_dist = model(inputs)
         with torch.no_grad():
             teacher_logits = teacher(inputs)
-        loss_ce = criterion(logits, labels)
+        loss_ce = criterion(logits_cls, labels)
         # Distillation loss (KL divergence)
         loss_kd = kl_loss(
-            nn.functional.log_softmax(logits / temperature, dim=1),
+            nn.functional.log_softmax(logits_dist / temperature, dim=1),
             nn.functional.softmax(teacher_logits / temperature, dim=1)
         )
         # Combine losses
@@ -98,12 +137,12 @@ for epoch in range(num_epochs):
             inputs, labels = inputs.to(device), labels.to(device)
             torch.cuda.synchronize()
             start_time = time.time()
-            outputs = model(inputs)
+            logits_cls, _ = model(inputs)
             torch.cuda.synchronize()
             end_time = time.time()
             batch_inference_time = end_time - start_time
             total_inference_time += batch_inference_time
-            _, preds = torch.max(outputs, 1)
+            _, preds = torch.max(logits_cls, 1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
     avg_time_per_batch = total_inference_time / len(testloader)
