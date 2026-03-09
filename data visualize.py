@@ -9,7 +9,11 @@ import seaborn as sns
 # -----------------------------
 ckpt_dirs = {
     "convnext": "checkpoints/convnext_checkpoints",
+    "googlenet": "checkpoints/googlenet_checkpoints",
+    "resnet": "checkpoints/resnet_checkpoints",
     "swint": "checkpoints/swint_checkpoints",
+    "vitSmall": "checkpoints/vitSmall_checkpoints",
+    "deitSmall": "checkpoints/deitSmall_checkpoints",
 }
 
 num_epochs = 200
@@ -18,7 +22,11 @@ os.makedirs(output_dir, exist_ok=True)
 
 model_colors = {
     "convnext": "blue",
+    "googlenet": "green",
+    "resnet": "purple",
     "swint": "red",
+    "vitSmall": "orange",
+    "deitSmall": "gold",
 }
 
 # -----------------------------
@@ -60,6 +68,8 @@ def load_checkpoints(ckpt_dir):
             continue
 
         checkpoint = torch.load(ckpt_path, map_location="cpu")
+        checkpoint.pop("model_state_dict", None)
+        checkpoint.pop("optimizer_state_dict", None)
         row = [checkpoint.get(key, None) for key in metric_keys]
         data.append(row)
 
@@ -125,7 +135,7 @@ for key in metric_keys:
         dfs,
         metric_key=key,
         y_label=y_label,
-        title=f"{y_label} over Epochs (ConvNeXt vs SwinT)"
+        title=f"{y_label} over Epochs (Model Comparison)"
     )
 
 # -----------------------------

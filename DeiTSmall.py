@@ -19,7 +19,6 @@ train_transform = T.Compose([
         (0.2673, 0.2564, 0.2761)
     )
 ])
-
 test_transform = T.Compose([
     T.ToTensor(),
     T.Normalize(
@@ -101,7 +100,7 @@ print("Total parameters:", total_params)
 ckpt_dir = "checkpoints/deitSmall_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
-num_epochs = 1
+num_epochs = 200
 print(f"Initial RAM memory: {psutil.virtual_memory().used / (1024**3):.2f} GB")
 for epoch in range(num_epochs):
     model.train()
