@@ -9,64 +9,84 @@ from tqdm import tqdm
 import time
 import psutil
 import os
-import pickle
 
-device = torch.device('cuda')
+coarse_labels_map = [
+    4,1,14,8,0,6,7,7,18,3,3,14,9,18,7,11,3,9,7,11,
+    6,11,5,10,7,6,13,15,3,15,0,11,1,10,12,14,16,9,11,5,
+    5,19,8,8,15,13,14,17,18,10,16,4,17,4,2,0,17,4,18,17,
+    10,3,2,12,12,16,12,1,9,19,2,10,0,1,16,12,9,13,15,13,
+    16,19,2,4,6,19,5,5,8,19,18,1,2,15,6,0,17,8,14,13
+]
 
 
-# Minimal augmentation to match your CIFAR-10 setup
-transform = T.Compose([
+# Mapping coarse to fine class indices
+coarse_to_fine = {i: [] for i in range(20)}
+for fine_idx, coarse_idx in enumerate(coarse_labels_map):
+    coarse_to_fine[coarse_idx].append(fine_idx)
+
+class CIFAR100Hierarchy(torch.utils.data.Dataset):
+    def __init__(self, train, transform):
+        self.dataset = torchvision.datasets.CIFAR100(
+            root='./data',
+            train=train,
+            download=True
+        )
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        img, fine_label = self.dataset[idx]
+        coarse_label = coarse_labels_map[fine_label]
+        if self.transform:
+            img = self.transform(img)
+        return img, fine_label, coarse_label
+
+train_transform = T.Compose([
     T.RandomCrop(32, padding=4),
     T.RandomHorizontalFlip(),
     T.ToTensor(),
     T.Normalize((0.5071,0.4865,0.4409), (0.2673,0.2564,0.2761))
 ])
 
-# Custom dataset to return fine + coarse labels
-class CIFAR100WithSuperclasses(torchvision.datasets.CIFAR100):
-    def __init__(self, root, train=True, transform=None, download=False):
-        super().__init__(root=root, train=train, transform=transform, download=download)
-        # Load coarse labels
-        base_folder = self.base_folder
-        file_list = self.train_list if train else self.test_list
-        path = os.path.join(self.root, base_folder, file_list[0][0])
-        with open(path, 'rb') as f:
-            entry = pickle.load(f, encoding='latin1')
-            self.coarse_labels = entry['coarse_labels']
+test_transform = T.Compose([
+    T.ToTensor(),
+    T.Normalize((0.5071, 0.4865, 0.4409),
+                (0.2673, 0.2564, 0.2761))
+])
 
-    def __getitem__(self, index):
-        img, fine_label = super().__getitem__(index)
-        coarse_label = self.coarse_labels[index]
-        return img, fine_label, coarse_label
+
 
 # Datasets and loaders
-trainset = CIFAR100WithSuperclasses(root='./data', train=True, download=True, transform=transform)
+trainset = CIFAR100Hierarchy( train=True, transform=train_transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True, num_workers=2)
-testset = CIFAR100WithSuperclasses(root='./data', train=False, download=True, transform=transform)
+testset = CIFAR100Hierarchy(train=False,  transform=test_transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
+device = torch.device('cuda')
 
-class ConvNeXtV2Hierarchical(nn.Module):
+class HierarchicalConvNeXt(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = create_model("convnextv2_tiny", pretrained=False, num_classes=0)
-        self.fine_head = nn.Linear(768, 100)   # fine labels
-        self.coarse_head = nn.Linear(768, 20)  # superclasses
+        self.backbone = create_model(
+            "convnextv2_tiny",
+            pretrained=False,
+            num_classes=0
+        )
+        self.head_coarse = nn.Linear(self.backbone.num_features, 20)
+        self.head_fine = nn.Linear(self.backbone.num_features, 100)
 
     def forward(self, x):
-        features = self.backbone.forward_features(x)  # [B, 768, H, W]
-        features = features.mean(dim=[2, 3])  # [B, 768]
-        fine_out = self.fine_head(features)
-        coarse_out = self.coarse_head(features)
-        return fine_out, coarse_out
+        features = self.backbone(x)
+        coarse_logits = self.head_coarse(features)
+        fine_logits = self.head_fine(features)
+        return coarse_logits, fine_logits
 
 
-model = ConvNeXtV2Hierarchical().to(device)
-
-
-criterion_fine = nn.CrossEntropyLoss()
-criterion_coarse = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-2)
+model = HierarchicalConvNeXt().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-4)
 
 
 num_epochs = 200
@@ -82,19 +102,19 @@ for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
     start_time = time.time()
-    correct_fine = 0
-    correct_coarse = 0
-    total = 0
     for inputs, fine_labels, coarse_labels in tqdm(trainloader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
         inputs, fine_labels, coarse_labels = inputs.to(device), fine_labels.to(device), coarse_labels.to(device)
-
         optimizer.zero_grad()
-        outputs_fine, outputs_coarse = model(inputs)
+        coarse_logits, fine_logits = model(inputs)
+        loss_coarse = criterion(coarse_logits, coarse_labels)
+        # Mask fine logits based on ground-truth coarse
+        fine_logits_masked = torch.full_like(fine_logits, float('-inf'))
+        for b in range(fine_logits.size(0)):
+            allowed_indices = coarse_to_fine[coarse_labels[b].item()]
+            fine_logits_masked[b, allowed_indices] = fine_logits[b, allowed_indices]
+        loss_fine = criterion(fine_logits_masked, fine_labels)
 
-        # Multi-task loss
-        loss_fine = criterion_fine(outputs_fine, fine_labels)
-        loss_coarse = criterion_coarse(outputs_coarse, coarse_labels)
-        loss = loss_fine + loss_coarse
+        loss = loss_coarse + 0.5 * loss_fine
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
@@ -104,10 +124,10 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1} finished. Loss: {train_loss}, Time: {epoch_train_time:.1f}s")
 
     model.eval()
-    all_preds_fine = []
-    all_labels_fine = []
-    all_preds_coarse = []
-    all_labels_coarse = []
+    all_fine_preds = []
+    all_fine_labels = []
+    all_coarse_preds = []
+    all_coarse_labels = []
     total_inference_time = 0.0
 
     with torch.no_grad():
@@ -116,33 +136,41 @@ for epoch in range(num_epochs):
 
             torch.cuda.synchronize()
             start_time = time.time()
-            outputs_fine, outputs_coarse = model(inputs)
+            coarse_logits, fine_logits  = model(inputs)
             torch.cuda.synchronize()
             end_time = time.time()
             batch_inference_time = end_time - start_time
             total_inference_time += batch_inference_time
 
-            _, preds_fine = torch.max(outputs_fine, 1)
-            _, preds_coarse = torch.max(outputs_coarse, 1)
-            all_preds_fine.extend(preds_fine.cpu().numpy())
-            all_labels_fine.extend(fine_labels.cpu().numpy())
-            all_preds_coarse.extend(preds_coarse.cpu().numpy())
-            all_labels_coarse.extend(coarse_labels.cpu().numpy())
+
+            _, coarse_preds = torch.max(coarse_logits, 1)
+            all_coarse_preds.extend(coarse_preds.cpu().numpy())
+            all_coarse_labels.extend(coarse_labels.cpu().numpy())
+            # Mask fine logits based on predicted coarse
+            fine_logits_masked = torch.full_like(fine_logits, float('-inf'))
+            for b in range(fine_logits.size(0)):
+                allowed_indices = coarse_to_fine[coarse_preds[b].item()]
+                fine_logits_masked[b, allowed_indices] = fine_logits[b, allowed_indices]
+
+            _, fine_preds = torch.max(fine_logits_masked, 1)
+            all_fine_preds.extend(fine_preds.cpu().numpy())
+            all_fine_labels.extend(fine_labels.cpu().numpy())
+
 
     avg_time_per_batch = total_inference_time / len(testloader)
 
     # Metrics
-    acc_fine = accuracy_score(all_labels_fine, all_preds_fine)
-    f1_fine = f1_score(all_labels_fine, all_preds_fine, average='macro')
-    precision_fine = precision_score(all_labels_fine, all_preds_fine, average='macro')
-    recall_fine = recall_score(all_labels_fine, all_preds_fine, average='macro')
-    cm_fine = confusion_matrix(all_labels_fine, all_preds_fine)
+    acc_fine = accuracy_score(all_fine_labels, all_fine_preds)
+    f1_fine = f1_score(all_fine_labels, all_fine_preds, average='macro')
+    precision_fine = precision_score(all_fine_labels, all_fine_preds, average='macro')
+    recall_fine = recall_score(all_fine_labels, all_fine_preds, average='macro')
+    cm_fine = confusion_matrix(all_fine_labels, all_fine_preds)
 
-    acc_coarse = accuracy_score(all_labels_coarse, all_preds_coarse)
-    f1_coarse = f1_score(all_labels_coarse, all_preds_coarse, average='macro')
-    precision_coarse = precision_score(all_labels_coarse, all_preds_coarse, average='macro')
-    recall_coarse = recall_score(all_labels_coarse, all_preds_coarse, average='macro')
-    cm_coarse = confusion_matrix(all_labels_coarse, all_preds_coarse)
+    acc_coarse = accuracy_score(all_coarse_labels, all_coarse_preds)
+    f1_coarse = f1_score(all_coarse_labels, all_coarse_preds, average='macro')
+    precision_coarse = precision_score(all_coarse_labels, all_coarse_preds, average='macro')
+    recall_coarse = recall_score(all_coarse_labels, all_coarse_preds, average='macro')
+    cm_coarse = confusion_matrix(all_coarse_labels, all_coarse_preds)
 
     print(f"Test Fine Acc: {acc_fine:.4f}, F1: {f1_fine:.4f}, Precision: {precision_fine:.4f}, Recall: {recall_fine:.4f}")
     print("Fine Confusion Matrix:\n", cm_fine)
