@@ -18,7 +18,6 @@ coarse_labels_map = [
     16,19,2,4,6,19,5,5,8,19,18,1,2,15,6,0,17,8,14,13
 ]
 
-
 # Mapping coarse to fine class indices
 coarse_to_fine = {i: [] for i in range(20)}
 for fine_idx, coarse_idx in enumerate(coarse_labels_map):
@@ -51,31 +50,33 @@ train_transform = T.Compose([
     T.RandomCrop(32, padding=4),
     T.RandomHorizontalFlip(),
     T.ToTensor(),
-    T.Normalize((0.5071,0.4865,0.4409), (0.2673,0.2564,0.2761))
+    T.Normalize(
+        (0.5071, 0.4865, 0.4409),
+        (0.2673, 0.2564, 0.2761)
+    )
 ])
 
 test_transform = T.Compose([
     T.ToTensor(),
-    T.Normalize((0.5071, 0.4865, 0.4409),
-                (0.2673, 0.2564, 0.2761))
+    T.Normalize(
+        (0.5071, 0.4865, 0.4409),
+        (0.2673, 0.2564, 0.2761)
+    )
 ])
 
-
-
-# Datasets and loaders
-trainset = CIFAR100Hierarchy( train=True, transform=train_transform)
+trainset = CIFAR100Hierarchy(train=True, transform=train_transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True, num_workers=2)
-testset = CIFAR100Hierarchy(train=False,  transform=test_transform)
+testset = CIFAR100Hierarchy(train=False, transform=test_transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 device = torch.device('cuda')
 mask_matrix = mask_matrix.to(device)  # move to GPU
 
-class HierarchicalConvNeXt(nn.Module):
+class HierarchicalResNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.backbone = create_model(
-            "convnextv2_tiny",
+            "resnet34",
             pretrained=False,
             num_classes=0
         )
@@ -88,21 +89,18 @@ class HierarchicalConvNeXt(nn.Module):
         fine_logits = self.head_fine(features)
         return coarse_logits, fine_logits
 
-
-model = HierarchicalConvNeXt().to(device)
+model = HierarchicalResNet().to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-4)
 
-
-num_epochs = 200
-ckpt_dir = "checkpoints/convnext100_checkpoints"
-os.makedirs(ckpt_dir, exist_ok=True)
-
 total_params = sum(p.numel() for p in model.parameters())
 print("Total parameters:", total_params)
+
+ckpt_dir = "checkpoints/resnet100_checkpoints"
+os.makedirs(ckpt_dir, exist_ok=True)
+
+num_epochs = 200
 print(f"Initial RAM memory: {psutil.virtual_memory().used / (1024**3):.2f} GB")
-
-
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -124,7 +122,7 @@ for epoch in range(num_epochs):
     ram_epoch = psutil.virtual_memory().used / (1024 ** 3)
     epoch_train_time = time.time() - start_time
     train_loss = round(running_loss / len(trainloader), 4)
-    print(f"Epoch {epoch+1} finished. Loss: {train_loss}, Time: {epoch_train_time:.1f}s")
+    print(f"Epoch {epoch + 1} finished. Loss: {train_loss}, Time: {epoch_train_time:.1f}s")
 
     model.eval()
     all_fine_preds = []
@@ -132,9 +130,8 @@ for epoch in range(num_epochs):
     all_coarse_preds = []
     all_coarse_labels = []
     total_inference_time = 0.0
-
     with torch.no_grad():
-        for inputs, fine_labels, coarse_labels in testloader:
+        for inputs, fine_labels, coarse_labels in tqdm(testloader, desc="Evaluating"):
             inputs, fine_labels, coarse_labels = inputs.to(device), fine_labels.to(device), coarse_labels.to(device)
 
             torch.cuda.synchronize()
@@ -148,7 +145,6 @@ for epoch in range(num_epochs):
             _, coarse_preds = torch.max(coarse_logits, 1)
             all_coarse_preds.extend(coarse_preds.cpu().numpy())
             all_coarse_labels.extend(coarse_labels.cpu().numpy())
-
             # Mask fine logits based on predicted coarse
             mask = mask_matrix[coarse_preds]
             fine_logits_masked = fine_logits.masked_fill(~mask, float('-inf'))
@@ -159,7 +155,7 @@ for epoch in range(num_epochs):
 
     avg_time_per_batch = total_inference_time / len(testloader)
 
-    # Metrics
+    #Metrics
     acc_fine = accuracy_score(all_fine_labels, all_fine_preds)
     f1_fine = f1_score(all_fine_labels, all_fine_preds, average='macro')
     precision_fine = precision_score(all_fine_labels, all_fine_preds, average='macro')
@@ -177,7 +173,6 @@ for epoch in range(num_epochs):
     print(f"Test Coarse Acc: {acc_coarse:.4f}, F1: {f1_coarse:.4f}, Precision: {precision_coarse:.4f}, Recall: {recall_coarse:.4f}")
     print("Coarse Confusion Matrix:\n", cm_coarse)
     print(f"Used RAM: {ram_epoch:.2f} GB, Avg inference time per batch: {avg_time_per_batch:.6f} sec")
-
 
     ckpt_path = os.path.join(ckpt_dir, f"checkpoint_epoch{epoch+1}.pth")
     torch.save({
