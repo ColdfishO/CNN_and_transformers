@@ -1,12 +1,27 @@
 import torch
+import os
 
-best_acc = 0
+best_score = 0
 best_ckpt_path = None
+best_acc_coarse = 0
+best_acc_fine = 0
+
 for epoch in range(1, 201):
-    path = f"checkpoints/resnet_checkpoints/checkpoint_epoch{epoch}.pth"
+    path = f"checkpoints/resnet100_checkpoints/checkpoint_epoch{epoch}.pth"
+
+    if not os.path.exists(path):
+        continue
+
     ckpt = torch.load(path)
-    if ckpt['val_acc'] > best_acc:
-        best_acc = ckpt['val_acc']
+
+    score = ckpt['val_acc_coarse'] + ckpt['val_acc_fine']
+
+    if score > best_score:
+        best_score = score
+        best_acc_coarse = ckpt['val_acc_coarse']
+        best_acc_fine = ckpt['val_acc_fine']
         best_ckpt_path = path
 
-print("Best checkpoint:", best_ckpt_path, "with val_acc:", best_acc)
+print("Best checkpoint:", best_ckpt_path,
+      "val_acc_coarse:", best_acc_coarse,
+      "val_acc_fine:", best_acc_fine)

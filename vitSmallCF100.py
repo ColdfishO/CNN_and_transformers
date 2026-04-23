@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as T
-from timm.models.swin_transformer import SwinTransformer
+from timm.models.vision_transformer import VisionTransformer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 from tqdm import tqdm
 import time
@@ -17,7 +17,6 @@ coarse_labels_map = [
     10,3,2,12,12,16,12,1,9,19,2,10,0,1,16,12,9,13,15,13,
     16,19,2,4,6,19,5,5,8,19,18,1,2,15,6,0,17,8,14,13
 ]
-
 
 # Mapping coarse to fine class indices
 coarse_to_fine = {i: [] for i in range(20)}
@@ -47,6 +46,7 @@ class CIFAR100Hierarchy(torch.utils.data.Dataset):
             img = self.transform(img)
         return img, fine_label, coarse_label
 
+
 train_transform = T.Compose([
     T.RandomCrop(32, padding=4),
     T.RandomHorizontalFlip(),
@@ -67,24 +67,23 @@ test_transform = T.Compose([
 
 trainset = CIFAR100Hierarchy(train=True, transform=train_transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True, num_workers=2)
-testset = CIFAR100Hierarchy(train=False, transform=test_transform)
+testset = CIFAR100Hierarchy( train=False, transform=test_transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 device = torch.device('cuda')
 mask_matrix = mask_matrix.to(device)  # move to GPU
 
-class HierarchicalSwinT(nn.Module):
+class HierarchicalVitSmall(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = SwinTransformer(
+        self.backbone = VisionTransformer(
             img_size=32,
             patch_size=4,
-            window_size=4,
-            in_chans=3,
-            num_classes=0,
-            embed_dim=96,
-            depths=[2, 2, 6, 2],
-            num_heads=[3, 6, 12, 24]
+            embed_dim=384,
+            depth=12,
+            num_heads=6,
+            mlp_ratio = 4.0,
+            num_classes = 0
         )
         self.head_coarse = nn.Linear(self.backbone.num_features, 20)
         self.head_fine = nn.Linear(self.backbone.num_features, 100)
@@ -95,14 +94,14 @@ class HierarchicalSwinT(nn.Module):
         fine_logits = self.head_fine(features)
         return coarse_logits, fine_logits
 
-model = HierarchicalSwinT().to(device)
+model = HierarchicalVitSmall().to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=2e-4)
 
 total_params = sum(p.numel() for p in model.parameters())
 print("Total parameters:", total_params)
 
-ckpt_dir = "checkpoints/swint100_checkpoints"
+ckpt_dir = "checkpoints/vitSmall100_checkpoints"
 os.makedirs(ckpt_dir, exist_ok=True)
 
 num_epochs = 200
