@@ -4,7 +4,7 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as T
 from timm.models.vision_transformer import VisionTransformer
-from ResNet34CF100 import HierarchicalResNet
+from resnet34_teachercf100 import HierarchicalResNet
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 from tqdm import tqdm
 import time
